@@ -28,27 +28,106 @@
     { range: 'אימונים 5–8', level: 'בינוני', desc: 'מספרים וחצים — פעולה מתמטית קלה וזיהוי כיוון תוך שינויי קצב.', pct: 50, label: '2/4' },
     { range: 'אימונים 9–12', level: 'מתקדם', desc: 'סימולציות משחק מלאות, קצב מהיר ותנועה במרחב.', pct: 0, label: '0/4' }
   ];
+  // Achievements — each unlocks from the player's real stats.
   var BADGES = [
-    { icon: '🔥', name: 'רצף 23 ימים', color: '#E05555' },
-    { icon: '⚡', name: 'ממוצע מתחת ל-1.5ש׳', color: 'var(--accent)' },
-    { icon: '◈', name: '1000 תרגילים', color: '#4CAF70' },
-    { icon: '▲', name: 'טיימר רמה 5', color: '#E0A93A' }
+    { icon: '🔥', name: 'רצף 7 ימים', color: '#E05555', test: function (s) { return s.bestStreak >= 7; } },
+    { icon: '⚡', name: 'ממוצע מתחת ל-1.5ש׳', color: '#2E5FD8', test: function (s) { return s.avgDecision != null && s.avgDecision < 1.5; } },
+    { icon: '◈', name: '100 תרגילים', color: '#4CAF70', test: function (s) { return s.totalReps >= 100; } },
+    { icon: '✓', name: '10 סשנים', color: '#E0A93A', test: function (s) { return s.totalSessions >= 10; } }
   ];
-  var RECENT_SESSIONS = [
-    { icon: '◈', name: 'תרגיל לחץ · 2 מול 1', when: 'אתמול · 8 חזרות', score: '88%', good: true },
-    { icon: '◎', name: 'סימולטור סריקה', when: 'לפני 3 ימים · 6 חזרות', score: '82%', good: true },
-    { icon: '⏱', name: 'טיימר החלטה', when: 'לפני 5 ימים · רמה 4', score: '71%', good: false }
-  ];
-  var RANGE_DATA = {
-    '7d': [1.9, 1.82, 1.76, 1.7, 1.61, 1.53, 1.42],
-    '30d': [2.1, 2.0, 1.95, 1.86, 1.78, 1.7, 1.6, 1.52, 1.46, 1.42],
-    'all': [2.6, 2.4, 2.2, 2.05, 1.9, 1.75, 1.6, 1.5, 1.42]
+  var KIND_META = {
+    drill: { icon: '◈', name: 'תרגיל לחץ' },
+    scan: { icon: '◎', name: 'סימולטור סריקה' },
+    ds: { icon: '⇄', name: 'סריקה כפולה' }
   };
-  var RADAR_AXES = [['1 מול 1', 78], ['2 מול 1', 54], ['מעבר צד', 82], ['שוער', 88], ['כדור ארוך', 66]];
-  var WEEK_BARS_DATA = [4, 5, 3, 6, 5, 7, 6, 8];
-  var HOME_STATS = [{ value: '1.42s', label: 'זמן החלטה ממוצע' }, { value: '6', label: 'סשנים השבוע' }, { value: '23', label: 'רצף שיא' }];
   var THEME_LABELS = { cream: 'פיקוד קרם', dark: 'מצב לילה', hybrid: 'מגרש היברידי' };
   var DRILL_WINDOW_MS = 3000;
+  var DAY_MS = 86400000;
+
+  // ===================== STATS ENGINE (real per-user data) =====================
+  function dayStart(t) { var d = new Date(t); d.setHours(0, 0, 0, 0); return d.getTime(); }
+  function history() { return (state.profile && Array.isArray(state.profile.history)) ? state.profile.history : []; }
+
+  // Relative Hebrew label for a timestamp.
+  function whenLabel(t) {
+    var diff = Math.round((dayStart(Date.now()) - dayStart(t)) / DAY_MS);
+    if (diff <= 0) return 'היום';
+    if (diff === 1) return 'אתמול';
+    if (diff < 7) return 'לפני ' + diff + ' ימים';
+    var w = Math.floor(diff / 7);
+    return w === 1 ? 'לפני שבוע' : 'לפני ' + w + ' שבועות';
+  }
+
+  // Derive every displayed number from the play history.
+  function computeStats() {
+    var h = history().slice().sort(function (a, b) { return a.t - b.t; });
+    var now = Date.now();
+    var drills = h.filter(function (e) { return e.k === 'drill' && e.d != null; });
+    var avgDecision = drills.length ? drills.reduce(function (s, e) { return s + e.d; }, 0) / drills.length : null;
+
+    function acc(kind) {
+      var es = h.filter(function (e) { return e.k === kind && e.r; });
+      if (!es.length) return null;
+      var c = es.reduce(function (s, e) { return s + (e.c || 0); }, 0);
+      var r = es.reduce(function (s, e) { return s + e.r; }, 0);
+      return Math.round((c / r) * 100);
+    }
+
+    var days = {};
+    h.forEach(function (e) { days[dayStart(e.t)] = true; });
+    var dayList = Object.keys(days).map(Number).sort(function (a, b) { return a - b; });
+    var bestStreak = 0, run = 0, prev = null;
+    dayList.forEach(function (d) {
+      if (prev != null && d - prev === DAY_MS) run += 1; else run = 1;
+      if (run > bestStreak) bestStreak = run;
+      prev = d;
+    });
+    var currentStreak = 0, today = dayStart(now);
+    if (dayList.length) {
+      var last = dayList[dayList.length - 1];
+      if (last === today || last === today - DAY_MS) {
+        currentStreak = 1;
+        for (var i = dayList.length - 2; i >= 0; i--) {
+          if (dayList[i + 1] - dayList[i] === DAY_MS) currentStreak += 1; else break;
+        }
+      }
+    }
+
+    var sessionsThisWeek = h.filter(function (e) { return e.t >= now - 7 * DAY_MS; }).length;
+    var thisWk = drills.filter(function (e) { return e.t >= now - 7 * DAY_MS; });
+    var lastWk = drills.filter(function (e) { return e.t < now - 7 * DAY_MS && e.t >= now - 14 * DAY_MS; });
+    var mean = function (a) { return a.length ? a.reduce(function (s, e) { return s + e.d; }, 0) / a.length : null; };
+    var thisWkAvg = mean(thisWk), lastWkAvg = mean(lastWk);
+    var delta = (thisWkAvg != null && lastWkAvg != null) ? (thisWkAvg - lastWkAvg) : null;
+
+    return {
+      total: h.length, totalSessions: h.length,
+      totalReps: h.reduce(function (s, e) { return s + (e.r || 0); }, 0),
+      avgDecision: avgDecision,
+      accDrill: acc('drill'), accScan: acc('scan'),
+      currentStreak: currentStreak, bestStreak: bestStreak,
+      sessionsThisWeek: sessionsThisWeek, delta: delta, sorted: h
+    };
+  }
+
+  // Record a completed session, persist to Supabase, refresh derived counters.
+  function recordSession(entry) {
+    entry.t = Date.now();
+    if (!state.profile) return;
+    if (!Array.isArray(state.profile.history)) state.profile.history = [];
+    state.profile.history.push(entry);
+    if (state.profile.history.length > 300) state.profile.history = state.profile.history.slice(-300);
+    var st = computeStats();
+    state.profile.streak_days = st.currentStreak;
+    state.profile.drills_completed = st.totalReps;
+    if (sb && state.userId) {
+      sb.from('profiles').update({
+        history: state.profile.history,
+        streak_days: st.currentStreak,
+        drills_completed: st.totalReps
+      }).eq('id', state.userId).then(function () {});
+    }
+  }
 
   function scenarios() {
     return [
@@ -234,7 +313,9 @@
     profileExists: false,
     calSel: [1, 1, 1],
     dPhase: 'idle', dRep: 1, dStreak: 0, dTimeLeft: 0, dScenario: 0, dResult: null, dOppNear: false, dDecTime: 0,
+    dSessCorrect: 0, dSessReps: 0, dSessTimes: [],
     sPhase: 'idle', sRep: 1, sDots: [], sRed: 0, sFreeSide: 'Left', sAnswered: null, sQType: 0,
+    sSessCorrect: 0, sSessReps: 0,
     ds2Phase: 'idle', ds2Rep: 1, ds2Count: 3, ds2Color1: null, ds2FlashSec: 1.5
   };
   var timers = { drill: null, scan: null, ds: null };
@@ -270,7 +351,6 @@
   // ===================== RENDER DISPATCH =====================
   function render() {
     var showNav = NAV_SCREENS.indexOf(state.screen) !== -1;
-    el.statusBar.style.display = showNav ? '' : 'none';
     el.bottomNav.style.display = showNav ? '' : 'none';
     el.screenContent.className = showNav ? 'pr-screen pr-scroll' : 'pr-noscroll';
     var html = '';
@@ -380,30 +460,52 @@
   function buildHome() {
     var p = state.profile || {};
     var fn = p.first_name || '';
-    var streak = p.streak_days != null ? p.streak_days : 1;
+    var st = computeStats();
     var d = new Date();
     var todayLabel = d.toLocaleDateString('he-IL', { weekday: 'long', month: 'long', day: 'numeric' });
-    var statsHtml = HOME_STATS.map(function (s) {
+    var homeStats = [
+      { value: st.avgDecision != null ? st.avgDecision.toFixed(2) + 's' : '—', label: 'זמן החלטה ממוצע' },
+      { value: String(st.sessionsThisWeek), label: 'סשנים השבוע' },
+      { value: String(st.bestStreak), label: 'רצף שיא' }
+    ];
+    var statsHtml = homeStats.map(function (s) {
       return '<div class="pr-card pr-stat-tile"><div class="pr-stat-value">' + s.value + '</div><div class="pr-stat-label">' + s.label + '</div></div>';
     }).join('');
+
+    // "continue training" reflects the most recent session, if any
+    var last = st.sorted[st.sorted.length - 1];
+    var continueHtml;
+    if (last) {
+      var meta = KIND_META[last.k] || KIND_META.drill;
+      var sub = (last.a != null ? last.a + '% דיוק · ' : '') + whenLabel(last.t);
+      continueHtml =
+        '<div class="pr-section-label">המשך אימון</div>' +
+        '<div class="pr-card pr-continue-row" data-action="go" data-screen="' + (last.k === 'ds' ? 'doublescan' : last.k) + '">' +
+        '<div class="pr-continue-icon">▸</div>' +
+        '<div style="flex:1"><div class="pr-continue-title">' + meta.name + '</div><div class="pr-continue-sub">' + sub + '</div></div>' +
+        '<div style="color:var(--dim)">›</div></div>';
+    } else {
+      continueHtml =
+        '<div class="pr-section-label">התחל את האימון הראשון</div>' +
+        '<div class="pr-card pr-continue-row" data-action="go" data-screen="scan">' +
+        '<div class="pr-continue-icon">▸</div>' +
+        '<div style="flex:1"><div class="pr-continue-title">סימולטור סריקה</div><div class="pr-continue-sub">עדיין לא התאמנת — זה הזמן להתחיל</div></div>' +
+        '<div style="color:var(--dim)">›</div></div>';
+    }
+
     return '' +
       '<div class="pr-today">' + todayLabel + '</div>' +
       '<div class="pr-greeting">מוכן לאמן, ' + esc(fn) + '?</div>' +
       '<div class="pr-challenge"><div class="pr-challenge-inner">' +
       '<div class="pr-challenge-top"><div class="pr-challenge-kicker">אתגר יומי</div>' +
-      '<div class="pr-streak-pill">🔥 רצף של ' + streak + ' ימים</div></div>' +
+      '<div class="pr-streak-pill">🔥 רצף של ' + st.currentStreak + ' ימים</div></div>' +
       '<div class="pr-challenge-title">לחץ 2 מול 1 · אגף שמאל</div>' +
       '<div class="pr-challenge-desc">מותאם לנקודת החולשה שלך: לחץ משניים.</div>' +
       '<div class="pr-challenge-meta"><span>⏱ ~5 דק\'</span><span>◈ 8 חזרות</span><span>▲ מסתגל</span></div>' +
       '<button class="pr-btn pr-btn-primary" data-action="go" data-screen="drill">התחל את הסשן של היום</button>' +
       '</div></div>' +
       '<div class="pr-stats-grid">' + statsHtml + '</div>' +
-      '<div class="pr-section-label">המשך אימון</div>' +
-      '<div class="pr-card pr-continue-row" data-action="go" data-screen="scan">' +
-      '<div class="pr-continue-icon">▸</div>' +
-      '<div style="flex:1"><div class="pr-continue-title">סימולטור סריקה</div><div class="pr-continue-sub">אחרון: 82% דיוק · לפני 3 ימים</div></div>' +
-      '<div style="color:var(--dim)">›</div>' +
-      '</div>';
+      continueHtml;
   }
 
   // ===================== TRAIN =====================
@@ -502,8 +604,13 @@
       else { state.dTimeLeft = left; render(); }
     }, 50);
   }
+  function beginDrillSession() {
+    state.dSessCorrect = 0; state.dSessReps = 0; state.dSessTimes = [];
+    startDrill();
+  }
   function drillTimeout() {
     state.dPhase = 'result'; state.dResult = { ok: false, timeout: true }; state.dStreak = 0; state.dDecTime = (DRILL_WINDOW_MS / 1000).toFixed(2);
+    state.dSessReps += 1;
     render();
   }
   function pickOption(i) {
@@ -514,10 +621,17 @@
     var ok = scen.opts[i].ok;
     var dec = ((win - state.dTimeLeft) / 1000).toFixed(2);
     state.dPhase = 'result'; state.dResult = { ok: ok, pick: i }; state.dStreak = ok ? state.dStreak + 1 : 0; state.dDecTime = dec;
+    state.dSessReps += 1;
+    if (ok) state.dSessCorrect += 1;
+    state.dSessTimes.push(parseFloat(dec));
     render();
   }
   function nextRep() {
-    if (state.dRep >= 8) { state.dPhase = 'idle'; state.dRep = 1; render(); return; }
+    if (state.dRep >= 8) {
+      var avg = state.dSessTimes.length ? state.dSessTimes.reduce(function (s, t) { return s + t; }, 0) / state.dSessTimes.length : null;
+      recordSession({ k: 'drill', r: state.dSessReps, c: state.dSessCorrect, a: Math.round((state.dSessCorrect / state.dSessReps) * 100), d: avg });
+      state.dPhase = 'idle'; state.dRep = 1; render(); return;
+    }
     state.dRep = state.dRep + 1;
     startDrill();
   }
@@ -579,14 +693,23 @@
     clearTimeout(timers.scan);
     timers.scan = setTimeout(function () { state.sPhase = 'ask'; render(); }, 850);
   }
+  function beginScanSession() {
+    state.sSessCorrect = 0; state.sSessReps = 0;
+    startScan();
+  }
   function answerScan(val) {
     var correct = state.sQType === 0 ? state.sRed : state.sFreeSide;
     var ok = String(val) === String(correct);
     state.sPhase = 'result'; state.sAnswered = { val: val, ok: ok };
+    state.sSessReps += 1;
+    if (ok) state.sSessCorrect += 1;
     render();
   }
   function nextScan() {
-    if (state.sRep >= 6) { state.sPhase = 'idle'; state.sRep = 1; render(); return; }
+    if (state.sRep >= 6) {
+      recordSession({ k: 'scan', r: state.sSessReps, c: state.sSessCorrect, a: state.sSessReps ? Math.round((state.sSessCorrect / state.sSessReps) * 100) : 0, d: null });
+      state.sPhase = 'idle'; state.sRep = 1; render(); return;
+    }
     state.sRep = state.sRep + 1;
     startScan();
   }
@@ -653,7 +776,10 @@
     timers.ds = setTimeout(function () {
       var next = Math.round((sec - 0.1) * 10) / 10;
       if (next <= 0) {
-        if (state.ds2Rep >= 10) { state.ds2Phase = 'done'; render(); return; }
+        if (state.ds2Rep >= 10) {
+          recordSession({ k: 'ds', r: 10, c: null, a: null, d: null });
+          state.ds2Phase = 'done'; render(); return;
+        }
         state.ds2Rep = state.ds2Rep + 1; state.ds2Phase = 'count'; state.ds2Count = 3;
         render();
         tickCountDS(3);
@@ -667,59 +793,93 @@
 
   // ===================== PROGRESS =====================
   function buildProgress() {
-    var data = RANGE_DATA[state.range];
-    var W = 300, H = 100, n = data.length;
-    var mx = Math.max.apply(null, data), mn = Math.min.apply(null, data), rng = (mx - mn) || 1;
-    var pts = data.map(function (v, i) { return { x: (i / (n - 1)) * W, y: 10 + (1 - (v - mn) / rng) * (H - 10) }; });
-    var linePath = pts.map(function (p) { return p.x.toFixed(1) + ',' + p.y.toFixed(1); }).join(' ');
-    var lineArea = '0,' + H + ' ' + linePath + ' ' + W + ',' + H;
-    var dotsHtml = pts.map(function (p) { return '<circle cx="' + p.x.toFixed(1) + '" cy="' + p.y.toFixed(1) + '" r="3" fill="var(--surface)" stroke="var(--accent)" stroke-width="2"></circle>'; }).join('');
+    var st = computeStats();
+    var rangeDays = { '7d': 7, '30d': 30, 'all': 100000 }[state.range];
+    var now = Date.now();
+
+    // reaction line — real drill decision times within the selected range
+    var series = st.sorted.filter(function (e) { return e.k === 'drill' && e.d != null && e.t >= now - rangeDays * DAY_MS; })
+      .map(function (e) { return e.d; });
     var rangeTabsHtml = [['7d', '7 י׳'], ['30d', '30 י׳'], ['all', 'הכול']].map(function (t) {
       return '<div class="pr-range-tab' + (state.range === t[0] ? ' active' : '') + '" data-action="setRange" data-range="' + t[0] + '">' + t[1] + '</div>';
     }).join('');
+    var chartHtml;
+    if (series.length >= 2) {
+      var W = 300, H = 100, n = series.length;
+      var mx = Math.max.apply(null, series), mn = Math.min.apply(null, series), rng = (mx - mn) || 1;
+      var pts = series.map(function (v, i) { return { x: (i / (n - 1)) * W, y: 10 + (1 - (v - mn) / rng) * (H - 10) }; });
+      var linePath = pts.map(function (p) { return p.x.toFixed(1) + ',' + p.y.toFixed(1); }).join(' ');
+      var lineArea = '0,' + H + ' ' + linePath + ' ' + W + ',' + H;
+      var dotsHtml = pts.map(function (p) { return '<circle cx="' + p.x.toFixed(1) + '" cy="' + p.y.toFixed(1) + '" r="3" fill="var(--surface)" stroke="var(--accent)" stroke-width="2"></circle>'; }).join('');
+      chartHtml = '<svg viewBox="0 0 300 110" style="width:100%;height:110px;margin-top:8px;overflow:visible">' +
+        '<polyline points="' + linePath + '" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"></polyline>' +
+        '<polygon points="' + lineArea + '" fill="var(--accent)" opacity="0.08"></polygon>' + dotsHtml + '</svg>';
+    } else {
+      chartHtml = '<div style="text-align:center;color:var(--dim);font-size:12px;padding:26px 0">עדיין אין מספיק תרגילי לחץ לגרף — סיים עוד סשן.</div>';
+    }
+    var reactionNum = st.avgDecision != null ? st.avgDecision.toFixed(2) : '—';
+    var deltaHtml = '';
+    if (st.delta != null && Math.abs(st.delta) >= 0.01) {
+      var down = st.delta < 0;
+      deltaHtml = '<div class="pr-reaction-delta" style="color:' + (down ? '#4CAF70' : '#E05555') + '">' +
+        (down ? '▼' : '▲') + ' ' + Math.abs(st.delta).toFixed(2) + 'ש\' השבוע</div>';
+    }
 
-    var cx = 100, cy = 100, R = 78;
-    function pt(val, i) { var ang = -Math.PI / 2 + i * (2 * Math.PI / 5); var r = R * (val / 100); return [cx + r * Math.cos(ang), cy + r * Math.sin(ang)]; }
-    var radarShape = RADAR_AXES.map(function (a, i) { var p = pt(a[1], i); return p[0].toFixed(1) + ',' + p[1].toFixed(1); }).join(' ');
-    var ringsHtml = [0.33, 0.66, 1].map(function (f) {
-      var poly = RADAR_AXES.map(function (a, i) { var p = pt(100 * f, i); return p[0].toFixed(1) + ',' + p[1].toFixed(1); }).join(' ');
-      return '<polygon points="' + poly + '" fill="none" stroke="var(--line)" stroke-width="1"></polygon>';
-    }).join('');
-    var spokesHtml = RADAR_AXES.map(function (a, i) { var p = pt(100, i); return '<line x1="100" y1="100" x2="' + p[0].toFixed(1) + '" y2="' + p[1].toFixed(1) + '" stroke="var(--line)" stroke-width="1"></line>'; }).join('');
-    var legendHtml = RADAR_AXES.map(function (a) {
-      var color = a[1] < 60 ? '#E05555' : (a[1] < 75 ? '#E0A93A' : '#4CAF70');
-      return '<div class="pr-radar-legend-row"><span class="name">' + a[0] + '</span><span class="value" style="color:' + color + '">' + a[1] + '</span></div>';
-    }).join('');
+    // accuracy by training type (real) — replaces the fixed "weakness radar"
+    var accRows = [
+      { name: 'תרגיל לחץ', v: st.accDrill },
+      { name: 'סריקה וזיהוי', v: st.accScan }
+    ].filter(function (r) { return r.v != null; });
+    var accHtml;
+    if (accRows.length) {
+      accHtml = accRows.map(function (r) {
+        var color = r.v < 60 ? '#E05555' : (r.v < 75 ? '#E0A93A' : '#4CAF70');
+        return '<div style="margin-top:12px"><div style="display:flex;justify-content:space-between;font-size:12px;font-weight:600;margin-bottom:6px">' +
+          '<span>' + r.name + '</span><span style="font-family:\'JetBrains Mono\',monospace;color:' + color + '">' + r.v + '%</span></div>' +
+          '<div class="pr-progress-track"><div class="pr-progress-fill" style="width:' + r.v + '%;background:' + color + '"></div></div></div>';
+      }).join('');
+    } else {
+      accHtml = '<div style="text-align:center;color:var(--dim);font-size:12px;padding:16px 0">אין עדיין נתוני דיוק.</div>';
+    }
 
-    var wmax = Math.max.apply(null, WEEK_BARS_DATA);
-    var barsHtml = WEEK_BARS_DATA.map(function (v, i) {
+    // weekly bars — sessions per week, last 8 weeks
+    var counts = [0, 0, 0, 0, 0, 0, 0, 0];
+    st.sorted.forEach(function (e) {
+      var b = Math.floor((now - e.t) / (7 * DAY_MS));
+      if (b >= 0 && b < 8) counts[7 - b] += 1;
+    });
+    var wmax = Math.max.apply(null, counts) || 1;
+    var barsHtml = counts.map(function (v, i) {
       var h = (v / wmax) * 100;
-      var color = i === WEEK_BARS_DATA.length - 1 ? 'var(--accent)' : 'var(--navy)';
+      var color = i === 7 ? 'var(--accent)' : 'var(--navy)';
       return '<div class="pr-week-bar-col"><div class="pr-week-bar" style="height:' + h + '%;background:' + color + '"></div><div class="pr-week-bar-label">ש' + (i + 1) + '</div></div>';
     }).join('');
 
-    var sessionsHtml = RECENT_SESSIONS.map(function (r) {
-      return '<div class="pr-card pr-session-row"><div class="pr-session-icon">' + r.icon + '</div>' +
-        '<div style="flex:1"><div class="pr-session-name">' + r.name + '</div><div class="pr-session-when">' + r.when + '</div></div>' +
-        '<div class="pr-session-score" style="color:' + (r.good ? '#4CAF70' : '#E0A93A') + '">' + r.score + '</div></div>';
-    }).join('');
+    // recent sessions — last 3
+    var recent = st.sorted.slice(-3).reverse();
+    var sessionsHtml;
+    if (recent.length) {
+      sessionsHtml = recent.map(function (e) {
+        var meta = KIND_META[e.k] || KIND_META.drill;
+        var score = e.a != null ? e.a + '%' : '✓';
+        var good = e.a == null ? true : e.a >= 75;
+        return '<div class="pr-card pr-session-row"><div class="pr-session-icon">' + meta.icon + '</div>' +
+          '<div style="flex:1"><div class="pr-session-name">' + meta.name + '</div><div class="pr-session-when">' + whenLabel(e.t) + ' · ' + (e.r || 0) + ' חזרות</div></div>' +
+          '<div class="pr-session-score" style="color:' + (good ? '#4CAF70' : '#E0A93A') + '">' + score + '</div></div>';
+      }).join('');
+    } else {
+      sessionsHtml = '<div class="pr-card" style="padding:20px;text-align:center;color:var(--dim);font-size:13px">עדיין אין סשנים — התחל להתאמן כדי לראות התקדמות.</div>';
+    }
 
     return '' +
       '<div class="pr-page-title">התקדמות</div>' +
       '<div class="pr-card" style="margin-top:16px;padding:16px">' +
       '<div class="pr-progress-card-top"><div style="font-size:13px;font-weight:700">זמן החלטה ממוצע</div><div class="pr-range-tabs">' + rangeTabsHtml + '</div></div>' +
-      '<div class="pr-reaction-value"><div class="num">1.42<span class="unit">s</span></div><div class="pr-reaction-delta">▼ 0.3ש\' השבוע</div></div>' +
-      '<svg viewBox="0 0 300 110" style="width:100%;height:110px;margin-top:8px;overflow:visible">' +
-      '<polyline points="' + linePath + '" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"></polyline>' +
-      '<polygon points="' + lineArea + '" fill="var(--accent)" opacity="0.08"></polygon>' +
-      dotsHtml +
-      '</svg>' +
+      '<div class="pr-reaction-value"><div class="num">' + reactionNum + (reactionNum !== '—' ? '<span class="unit">s</span>' : '') + '</div>' + deltaHtml + '</div>' +
+      chartHtml +
       '</div>' +
       '<div class="pr-card" style="margin-top:14px;padding:16px">' +
-      '<div style="font-size:13px;font-weight:700">מכ״ם חולשות</div>' +
-      '<div class="pr-radar-row"><svg viewBox="0 0 200 200" style="width:150px;height:150px;flex:none">' + ringsHtml + spokesHtml +
-      '<polygon points="' + radarShape + '" fill="var(--accent)" opacity="0.22" stroke="var(--accent)" stroke-width="2"></polygon></svg>' +
-      '<div class="pr-radar-legend">' + legendHtml + '</div></div>' +
+      '<div style="font-size:13px;font-weight:700">דיוק לפי סוג אימון</div>' + accHtml +
       '</div>' +
       '<div class="pr-card" style="margin-top:14px;padding:16px">' +
       '<div style="font-size:13px;font-weight:700">סשנים · 8 שבועות אחרונים</div>' +
@@ -737,8 +897,12 @@
     var role = state.role;
     var initials = fullName.split(' ').map(function (w) { return w[0]; }).slice(0, 2).join('').toUpperCase();
 
+    var st = computeStats();
     var badgesHtml = BADGES.map(function (b) {
-      return '<div class="pr-badge"><div class="pr-badge-icon" style="background:color-mix(in srgb, ' + b.color + ' 14%, var(--surface));color:' + b.color + '">' + b.icon + '</div><div class="pr-badge-name">' + b.name + '</div></div>';
+      var on = b.test(st);
+      var bg = on ? ('color-mix(in srgb, ' + b.color + ' 14%, var(--surface))') : 'var(--surface)';
+      var fg = on ? b.color : 'var(--dim)';
+      return '<div class="pr-badge" style="opacity:' + (on ? 1 : 0.4) + '"><div class="pr-badge-icon" style="background:' + bg + ';color:' + fg + '">' + b.icon + '</div><div class="pr-badge-name">' + b.name + '</div></div>';
     }).join('');
 
     var settingsRows = [
@@ -764,8 +928,8 @@
       '<div><div class="pr-profile-name">' + esc(fullName) + '</div><div class="pr-profile-team">' + esc(team) + '</div>' +
       '<div class="pr-profile-role-pill">' + ROLE_LABELS[role] + '</div></div></div>' +
       '<div class="pr-profile-stats">' +
-      '<div class="pr-card pr-profile-stat"><div class="num">' + (p.total_hours || 0) + '<span class="unit">ש\'</span></div><div class="label">אימון כולל</div></div>' +
-      '<div class="pr-card pr-profile-stat"><div class="num">' + (p.drills_completed || 0) + '</div><div class="label">תרגילים שהושלמו</div></div>' +
+      '<div class="pr-card pr-profile-stat"><div class="num">' + st.totalSessions + '</div><div class="label">סשנים שהושלמו</div></div>' +
+      '<div class="pr-card pr-profile-stat"><div class="num">' + st.totalReps.toLocaleString('en-US') + '</div><div class="label">תרגילים שהושלמו</div></div>' +
       '</div>' +
       '<div class="pr-section-label">הישגים</div>' +
       '<div class="pr-badges">' + badgesHtml + '</div>' +
@@ -820,10 +984,10 @@
         break;
       }
       case 'finishOnboarding': finishOnboarding(); break;
-      case 'startDrill': startDrill(); break;
+      case 'startDrill': beginDrillSession(); break;
       case 'pick': pickOption(Number(target.getAttribute('data-i'))); break;
       case 'nextRep': nextRep(); break;
-      case 'startScan': startScan(); break;
+      case 'startScan': beginScanSession(); break;
       case 'answerScan': answerScan(target.getAttribute('data-val')); break;
       case 'nextScan': nextScan(); break;
       case 'startDS': startDS(); break;
@@ -935,7 +1099,7 @@
   function cacheEls() {
     ['app', 'splashScreen', 'splashLoginBtn', 'loginScreen', 'loginEmail', 'loginPassword', 'loginError', 'loginSubmit', 'goRegister',
       'registerScreen', 'regFirstName', 'regEmail', 'regPassword', 'regConfirm', 'regTeam', 'registerError', 'registerSubmit', 'goLogin',
-      'onboardingScreen', 'waitingScreen', 'waitingRecheck', 'waitingLogout', 'mainApp', 'statusBar', 'screenContent', 'bottomNav', 'setupNotice'].forEach(function (id) { el[id] = q(id); });
+      'onboardingScreen', 'waitingScreen', 'waitingRecheck', 'waitingLogout', 'mainApp', 'screenContent', 'bottomNav', 'setupNotice'].forEach(function (id) { el[id] = q(id); });
   }
 
   function wireStaticHandlers() {

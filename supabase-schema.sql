@@ -12,11 +12,13 @@ create table if not exists public.profiles (
   streak_days integer not null default 1,
   total_hours numeric not null default 0,
   drills_completed integer not null default 0,
+  history jsonb not null default '[]'::jsonb,
   created_at timestamptz not null default now()
 );
 
--- If the table already existed without the approved column, add it now:
+-- If the table already existed without these columns, add them now:
 alter table public.profiles add column if not exists approved boolean not null default false;
+alter table public.profiles add column if not exists history jsonb not null default '[]'::jsonb;
 
 alter table public.profiles enable row level security;
 
@@ -28,5 +30,5 @@ create policy "own profile" on public.profiles
 -- Users may update their own profile columns, but NOT the "approved" flag —
 -- only you (via the Supabase dashboard, which uses the service role) can flip it.
 revoke update on public.profiles from authenticated;
-grant update (first_name, last_name, team, role, theme, streak_days, total_hours, drills_completed)
+grant update (first_name, last_name, team, role, theme, streak_days, total_hours, drills_completed, history)
   on public.profiles to authenticated;

@@ -53,7 +53,7 @@ button { -webkit-tap-highlight-color: transparent; }
   padding: max(16px, env(safe-area-inset-top)) 20px 6px; font-size: 14px; font-weight: 600;
   color: var(--ink); background: var(--bg);
 }
-.pr-screen { padding: 6px 20px 118px; min-height: calc(100dvh - 46px); animation: prFade .4s ease; }
+.pr-screen { padding: calc(env(safe-area-inset-top) + 22px) 20px 118px; min-height: 100dvh; animation: prFade .4s ease; }
 .pr-noscroll { position: absolute; inset: 0; padding: 0; background: var(--bg); display: flex; flex-direction: column; animation: prFade .35s ease; }
 
 /* ---------- generic ---------- */
