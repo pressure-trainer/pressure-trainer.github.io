@@ -231,6 +231,7 @@
     range: '7d',
     userId: null,
     profile: null,
+    profileExists: false,
     calSel: [1, 1, 1],
     dPhase: 'idle', dRep: 1, dStreak: 0, dTimeLeft: 0, dScenario: 0, dResult: null, dOppNear: false, dDecTime: 0,
     sPhase: 'idle', sRep: 1, sDots: [], sRed: 0, sFreeSide: 'Left', sAnswered: null, sQType: 0,
@@ -305,9 +306,20 @@
       }).join('');
       return '<div class="pr-card pr-cal-card"><div class="pr-cal-q">' + c.q + '</div><div class="pr-cal-opts">' + optsHtml + '</div></div>';
     }).join('');
+    // When the profile has no name yet (e.g. an account that already existed
+    // in this Supabase project, before it had a Pressure profile), collect the
+    // name + team here so the created profile isn't nameless.
+    var needsDetails = !state.profileExists;
+    var detailsHtml = needsDetails ?
+      ('<div class="pr-onb-section" style="margin-top:0">הפרטים שלך</div>' +
+       '<div class="pr-auth-fields">' +
+       '<div><div class="pr-field-label">שם פרטי</div><input id="onbName" class="pr-input" type="text" placeholder="נועם" value="' + esc(p.first_name || '') + '"></div>' +
+       '<div><div class="pr-field-label">קבוצה</div><input id="onbTeam" class="pr-input" type="text" placeholder="שם הקבוצה" value="' + esc(p.team || '') + '"></div>' +
+       '</div>') : '';
     el.onboardingScreen.innerHTML =
-      '<div class="pr-onb-kicker">ברוך הבא, ' + esc(fn) + '</div>' +
+      '<div class="pr-onb-kicker">ברוך הבא' + (fn ? ', ' + esc(fn) : '') + '</div>' +
       '<div class="pr-onb-title">אמן את המחשבה.<br>נצח את הלחץ.</div>' +
+      (needsDetails ? '<div style="height:22px"></div>' + detailsHtml : '') +
       '<div class="pr-onb-section">בחר את התפקיד שלך</div>' +
       '<div class="pr-role-list">' + rolesHtml + '</div>' +
       '<div class="pr-onb-section">כיול מהיר</div>' +
@@ -317,12 +329,38 @@
 
   function finishOnboarding() {
     var role = state.role;
+    var p = state.profile || {};
+    var nameInput = q('onbName');
+    var teamInput = q('onbTeam');
+    if (nameInput) p.first_name = nameInput.value.trim();
+    if (teamInput) p.team = teamInput.value.trim() || 'הקבוצה שלי';
+    p.role = role;
+    state.profile = p;
     var done = function () {
-      if (state.profile) state.profile.role = role;
-      goScreen((state.profile && state.profile.approved) ? 'home' : 'waiting');
+      goScreen(p.approved ? 'home' : 'waiting');
     };
     if (sb && state.userId) {
-      sb.from('profiles').update({ role: role }).eq('id', state.userId).then(done);
+      if (state.profileExists) {
+        // profile row already exists (fresh registration) — just update it.
+        sb.from('profiles').update({
+          first_name: p.first_name || '', team: p.team || 'הקבוצה שלי',
+          role: role, theme: p.theme || state.theme || 'cream'
+        }).eq('id', state.userId).then(done);
+      } else {
+        // no profile row yet (logged into a pre-existing account) — create one.
+        var row = {
+          id: state.userId,
+          first_name: p.first_name || '', last_name: p.last_name || '',
+          team: p.team || 'הקבוצה שלי', role: role, theme: p.theme || state.theme || 'cream',
+          streak_days: p.streak_days != null ? p.streak_days : 1,
+          total_hours: p.total_hours != null ? p.total_hours : 0,
+          drills_completed: p.drills_completed != null ? p.drills_completed : 0
+        };
+        sb.from('profiles').insert(row).then(function (res) {
+          if (!res.error) state.profileExists = true;
+          done();
+        });
+      }
     } else {
       done();
     }
@@ -748,7 +786,7 @@
   function logout() {
     clearTimers();
     if (sb) sb.auth.signOut();
-    state.userId = null; state.profile = null; state.role = 'CB'; state.theme = 'cream'; state.calSel = [1, 1, 1];
+    state.userId = null; state.profile = null; state.profileExists = false; state.role = 'CB'; state.theme = 'cream'; state.calSel = [1, 1, 1];
     applyTheme('cream');
     el.loginEmail.value = ''; el.loginPassword.value = '';
     beginSplash();
@@ -851,6 +889,7 @@
         if (insRes.error) { showRegErr(insRes.error.message); return; }
         state.userId = user.id;
         state.profile = profileRow;
+        state.profileExists = true;
         state.role = 'CB';
         state.theme = 'cream';
         applyTheme('cream');
@@ -866,12 +905,14 @@
       var row = res.data;
       if (row) {
         state.profile = row;
+        state.profileExists = true;
         state.role = row.role || 'CB';
         state.theme = row.theme || 'cream';
         applyTheme(state.theme);
         goScreen(row.approved ? 'home' : 'waiting');
       } else {
         state.profile = { first_name: '', last_name: '', team: '', role: 'CB', theme: 'cream', streak_days: 1, total_hours: 0, drills_completed: 0 };
+        state.profileExists = false;
         applyTheme('cream');
         goScreen('onboarding');
       }
@@ -907,6 +948,13 @@
     el.waitingRecheck.addEventListener('click', recheckApproval);
     el.waitingLogout.addEventListener('click', logout);
     el.onboardingScreen.addEventListener('click', onContentClick);
+    // Keep the onboarding name/team inputs in sync with state so a re-render
+    // (e.g. picking a role) doesn't wipe what the user typed.
+    el.onboardingScreen.addEventListener('input', function (e) {
+      if (!state.profile) return;
+      if (e.target.id === 'onbName') state.profile.first_name = e.target.value;
+      if (e.target.id === 'onbTeam') state.profile.team = e.target.value;
+    });
     el.screenContent.addEventListener('click', onContentClick);
     el.bottomNav.addEventListener('click', onContentClick);
   }
