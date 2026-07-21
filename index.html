@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<title>Pressure — אימון קוגניטיבי לבלמים</title>
+<meta name="theme-color" content="#1B2B5C">
+<meta name="description" content="אימון קוגניטיבי לבלמים עילית — אמן את המחשבה, נצח את הלחץ.">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+<link rel="icon" href="assets/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app" class="pr-shell">
+
+  <!-- ============ SPLASH ============ -->
+  <div id="splashScreen" class="pr-splash">
+    <div class="pr-splash-mark"><div class="pr-logo-ring"></div></div>
+    <div class="pr-splash-title">Pressure</div>
+    <div class="pr-splash-tag">אמן את המחשבה. נצח את הלחץ.</div>
+    <button id="splashLoginBtn" class="pr-btn pr-btn-primary">כניסה</button>
+    <div class="pr-splash-version">v1.0 · מעבר אוטומטי בעוד 2 שניות</div>
+  </div>
+
+  <!-- ============ LOGIN ============ -->
+  <div id="loginScreen" class="pr-auth-screen" style="display:none">
+    <div class="pr-auth-mark"><div class="pr-logo-ring small"></div></div>
+    <div class="pr-auth-title">ברוך שובך</div>
+    <div class="pr-auth-sub">התחבר כדי להמשיך באימון.</div>
+    <div class="pr-auth-fields">
+      <div>
+        <div class="pr-field-label">אימייל</div>
+        <input id="loginEmail" class="pr-input" type="email" placeholder="name@example.com" autocomplete="username">
+      </div>
+      <div>
+        <div class="pr-field-label">סיסמה</div>
+        <input id="loginPassword" class="pr-input" type="password" placeholder="••••••••" autocomplete="current-password">
+      </div>
+    </div>
+    <div id="loginError" class="pr-error" style="display:none"></div>
+    <div class="pr-auth-forgot">שכחתי סיסמה</div>
+    <button id="loginSubmit" class="pr-btn pr-btn-navy" style="width:100%;margin-top:22px">התחבר</button>
+    <div class="pr-auth-switch">עדיין אין לך חשבון? <span id="goRegister">הירשם</span></div>
+  </div>
+
+  <!-- ============ REGISTER ============ -->
+  <div id="registerScreen" class="pr-auth-screen pr-scroll" style="display:none;height:100dvh">
+    <div class="pr-auth-title">יצירת חשבון</div>
+    <div class="pr-auth-sub">הגדר את פרופיל האימון האישי שלך.</div>
+    <div class="pr-auth-fields">
+      <div>
+        <div class="pr-field-label">שם פרטי</div>
+        <input id="regFirstName" class="pr-input" type="text" placeholder="נועם">
+      </div>
+      <div>
+        <div class="pr-field-label">אימייל</div>
+        <input id="regEmail" class="pr-input" type="email" placeholder="name@example.com" autocomplete="username">
+      </div>
+      <div>
+        <div class="pr-field-label">סיסמה</div>
+        <input id="regPassword" class="pr-input" type="password" placeholder="לפחות 4 תווים" autocomplete="new-password">
+      </div>
+      <div>
+        <div class="pr-field-label">אימות סיסמה</div>
+        <input id="regConfirm" class="pr-input" type="password" placeholder="הקלד שוב" autocomplete="new-password">
+      </div>
+      <div>
+        <div class="pr-field-label">קבוצה</div>
+        <input id="regTeam" class="pr-input" type="text" placeholder="שם הקבוצה">
+      </div>
+    </div>
+    <div id="registerError" class="pr-error" style="display:none"></div>
+    <button id="registerSubmit" class="pr-btn pr-btn-navy" style="width:100%;margin-top:22px">צור חשבון</button>
+    <div class="pr-auth-switch">כבר יש לך חשבון? <span id="goLogin">התחבר</span></div>
+  </div>
+
+  <!-- ============ ONBOARDING (JS-built) ============ -->
+  <div id="onboardingScreen" class="pr-scroll" style="display:none;height:100dvh;padding:60px 26px 40px"></div>
+
+  <!-- ============ MAIN APP (JS-built) ============ -->
+  <div id="mainApp" style="display:none">
+    <div id="statusBar" class="pr-statusbar" style="display:none">
+      <span>9:41</span>
+      <span style="display:flex;gap:6px;align-items:center;font-size:12px;opacity:.85">▪▪▪ ᯤ ▮</span>
+    </div>
+    <div id="screenContent" class="pr-scroll"></div>
+    <div id="bottomNav" class="pr-bottom-nav" style="display:none"></div>
+  </div>
+
+  <!-- ============ WAITING FOR APPROVAL ============ -->
+  <div id="waitingScreen" class="pr-splash" style="display:none">
+    <div class="pr-splash-mark"><div class="pr-logo-ring"></div></div>
+    <div class="pr-splash-title" style="font-size:26px;z-index:2">ממתין לאישור</div>
+    <div class="pr-splash-tag" style="max-width:280px;text-align:center;z-index:2">החשבון שלך נוצר בהצלחה. מנהל האפליקציה צריך לאשר אותך לפני הכניסה הראשונה.</div>
+    <button id="waitingRecheck" class="pr-btn pr-btn-primary" style="z-index:2;margin-top:40px;padding:15px 46px">בדוק שוב</button>
+    <button id="waitingLogout" style="z-index:2;margin-top:14px;background:none;border:none;color:rgba(255,255,255,.55);font-family:inherit;font-size:14px;font-weight:600;cursor:pointer">התנתקות</button>
+  </div>
+
+  <div id="setupNotice" class="pr-error" style="display:none;position:fixed;bottom:16px;left:16px;right:16px;z-index:50"></div>
+
+</div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
